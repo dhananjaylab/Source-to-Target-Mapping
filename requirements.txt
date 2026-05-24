@@ -9,7 +9,8 @@ uvicorn[standard]==0.30.6
 streamlit==1.38.0
 
 # ── Gemini LLM ─────────────────────────────
-google-generativeai==0.8.3
+# google-generativeai==0.8.3
+google-genai==2.6.0
 
 # ── Data & HTTP ────────────────────────────
 pandas==2.2.3
@@ -23,9 +24,9 @@ pydantic==2.9.2
 python-dotenv==1.0.1
 
 # ── Oracle DB (optional — enable for live Oracle) ──
-# cx_Oracle==8.3.0
-# oracledb==2.4.1
+cx_Oracle==8.3.0
+oracledb==2.4.1
 
 # ── Observability (optional) ───────────────
-# structlog==24.4.0
-# prometheus-fastapi-instrumentator==7.0.0
+structlog==24.4.0
+prometheus-fastapi-instrumentator==7.0.0

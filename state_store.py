@@ -23,7 +23,7 @@ from models import (
 # Load demo schemas from disk
 # ──────────────────────────────────────────────
 
-_SCHEMA_PATH = Path(__file__).parent.parent / "sample_schemas" / "schemas.json"
+_SCHEMA_PATH = Path(__file__).parent / "sample_schemas" / "schemas.json"
 
 def load_demo_schemas() -> dict:
     with open(_SCHEMA_PATH) as f:

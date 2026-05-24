@@ -1,0 +1,105 @@
+{
+  "source_schemas": {
+    "CRM_CUSTOMERS": {
+      "owner": "CRM_OWNER",
+      "row_count_estimate": 284500,
+      "columns": [
+        {"name": "cust_id",     "type": "INTEGER",      "nullable": "N", "comment": "Unique customer identifier from CRM system", "samples": [101, 102, 103, 104, 105]},
+        {"name": "fname",       "type": "VARCHAR2(50)",  "nullable": "Y", "comment": "Customer first name",                        "samples": ["Alice","Bob","Carol","Dave","Eve"]},
+        {"name": "lname",       "type": "VARCHAR2(50)",  "nullable": "Y", "comment": "Customer last name",                         "samples": ["Smith","Jones","Patel","Brown","Davis"]},
+        {"name": "email_addr",  "type": "VARCHAR2(255)", "nullable": "Y", "comment": "Primary email address for correspondence",   "samples": ["alice@example.com","bob@corp.io","carol@test.net"]},
+        {"name": "ph_num",      "type": "VARCHAR2(20)",  "nullable": "Y", "comment": "Contact phone number",                       "samples": ["+1-555-0101","+1-555-0102","+44-20-7946-0958"]},
+        {"name": "cust_type",   "type": "CHAR(1)",       "nullable": "N", "comment": "B=Business C=Consumer",                     "samples": ["B","C","B","C","C"]},
+        {"name": "acct_bal",    "type": "NUMBER(15,2)",  "nullable": "Y", "comment": "Current account balance in USD",             "samples": [1250.50, 750.00, 3400.75, 125.00, 890.25]},
+        {"name": "reg_dt",      "type": "DATE",          "nullable": "N", "comment": "Date the customer first registered",         "samples": ["2020-01-15","2021-03-22","2019-11-08"]},
+        {"name": "legacy_flag", "type": "CHAR(1)",       "nullable": "Y", "comment": "Y if migrated from legacy system",           "samples": ["Y","N","N","Y","N"]},
+        {"name": "crm_src_cd",  "type": "VARCHAR2(10)",  "nullable": "Y", "comment": "Source code: SFDC HUB MANUAL API",          "samples": ["SFDC","HUB","MANUAL","API"]}
+      ]
+    },
+    "ORD_TRANSACTIONS": {
+      "owner": "OMS_OWNER",
+      "row_count_estimate": 1920000,
+      "columns": [
+        {"name": "ord_id",    "type": "INTEGER",       "nullable": "N", "comment": "Unique order identifier",             "samples": [5001,5002,5003,5004,5005]},
+        {"name": "cust_id",   "type": "INTEGER",       "nullable": "N", "comment": "FK to CRM_CUSTOMERS",                 "samples": [101,102,101,103,104]},
+        {"name": "ord_dt",    "type": "DATE",          "nullable": "N", "comment": "Date order was placed",               "samples": ["2024-01-15","2024-01-16","2024-01-17"]},
+        {"name": "ttl_amt",   "type": "NUMBER(15,2)",  "nullable": "N", "comment": "Total order value in USD",            "samples": [299.99,149.50,89.00,549.99,199.99]},
+        {"name": "unit_prc",  "type": "NUMBER(10,2)",  "nullable": "N", "comment": "Price per unit at time of order",     "samples": [99.99,149.50,89.00,274.99,49.99]},
+        {"name": "qty",       "type": "INTEGER",       "nullable": "N", "comment": "Number of units in this order",       "samples": [3,1,1,2,4]},
+        {"name": "ord_stat",  "type": "VARCHAR2(10)",  "nullable": "N", "comment": "SHIPPED PENDING DELIVERED CANCELLED", "samples": ["SHIPPED","PENDING","DELIVERED","CANCELLED"]},
+        {"name": "ship_addr", "type": "VARCHAR2(500)", "nullable": "Y", "comment": "Full shipping address string",        "samples": ["123 Main St, New York, NY 10001","456 Oak Ave, Los Angeles, CA 90001"]},
+        {"name": "disc_pct",  "type": "NUMBER(5,2)",   "nullable": "Y", "comment": "Discount percentage applied 0-100",   "samples": [0,10,5,15,0]}
+      ]
+    },
+    "INV_PRODUCTS": {
+      "owner": "INV_OWNER",
+      "row_count_estimate": 12400,
+      "columns": [
+        {"name": "prod_id",   "type": "INTEGER",       "nullable": "N", "comment": "Product identifier",                  "samples": [1001,1002,1003,1004]},
+        {"name": "prod_nm",   "type": "VARCHAR2(200)", "nullable": "N", "comment": "Product display name",                "samples": ["Widget Pro","Gadget XL","Tool Kit","Device Basic"]},
+        {"name": "prod_cat",  "type": "VARCHAR2(50)",  "nullable": "N", "comment": "Product category code",               "samples": ["ELECTRONICS","TOOLS","ACCESSORIES"]},
+        {"name": "list_prc",  "type": "NUMBER(10,2)",  "nullable": "N", "comment": "Standard list price USD",             "samples": [99.99,249.99,49.99,19.99]},
+        {"name": "stk_qty",   "type": "INTEGER",       "nullable": "N", "comment": "Current stock quantity",              "samples": [500,120,0,2800]},
+        {"name": "sku_cd",    "type": "VARCHAR2(20)",  "nullable": "N", "comment": "Stock keeping unit code",             "samples": ["WP-001","GX-002","TK-003","DB-004"]},
+        {"name": "actv_flg",  "type": "CHAR(1)",       "nullable": "N", "comment": "Y=active listing N=discontinued",    "samples": ["Y","Y","N","Y"]},
+        {"name": "creat_dt",  "type": "DATE",          "nullable": "N", "comment": "Product creation date",              "samples": ["2019-06-01","2020-11-15","2018-03-22"]}
+      ]
+    }
+  },
+  "target_schemas": {
+    "DIM_CUSTOMER": {
+      "owner": "DW_OWNER",
+      "row_count_estimate": 0,
+      "columns": [
+        {"name": "customer_key",      "type": "INTEGER",      "nullable": "N", "comment": "Surrogate primary key"},
+        {"name": "customer_id",       "type": "INTEGER",      "nullable": "N", "comment": "Source system customer ID"},
+        {"name": "first_name",        "type": "VARCHAR2(50)", "nullable": "Y", "comment": "Customer first name"},
+        {"name": "last_name",         "type": "VARCHAR2(50)", "nullable": "Y", "comment": "Customer last name"},
+        {"name": "email_address",     "type": "VARCHAR2(255)","nullable": "Y", "comment": "Email address"},
+        {"name": "phone_number",      "type": "VARCHAR2(20)", "nullable": "Y", "comment": "Contact phone number"},
+        {"name": "customer_type",     "type": "CHAR(1)",      "nullable": "N", "comment": "B=Business C=Consumer"},
+        {"name": "account_balance",   "type": "NUMBER(15,2)", "nullable": "Y", "comment": "Account balance USD"},
+        {"name": "registration_date", "type": "DATE",         "nullable": "N", "comment": "Initial registration date"},
+        {"name": "is_active",         "type": "CHAR(1)",      "nullable": "N", "comment": "Active flag Y/N"},
+        {"name": "source_system",     "type": "VARCHAR2(20)", "nullable": "Y", "comment": "Originating source system code"},
+        {"name": "etl_batch_id",      "type": "INTEGER",      "nullable": "N", "comment": "ETL batch load identifier"},
+        {"name": "load_timestamp",    "type": "TIMESTAMP",    "nullable": "N", "comment": "ETL load timestamp"}
+      ]
+    },
+    "FACT_ORDERS": {
+      "owner": "DW_OWNER",
+      "row_count_estimate": 0,
+      "columns": [
+        {"name": "order_key",        "type": "INTEGER",      "nullable": "N", "comment": "Surrogate primary key"},
+        {"name": "order_id",         "type": "INTEGER",      "nullable": "N", "comment": "Source system order ID"},
+        {"name": "customer_key",     "type": "INTEGER",      "nullable": "N", "comment": "FK to DIM_CUSTOMER"},
+        {"name": "sale_date",        "type": "DATE",         "nullable": "N", "comment": "Date of sale"},
+        {"name": "total_amount",     "type": "NUMBER(15,2)", "nullable": "N", "comment": "Total order amount USD"},
+        {"name": "unit_price",       "type": "NUMBER(10,2)", "nullable": "N", "comment": "Unit price at sale time"},
+        {"name": "quantity",         "type": "INTEGER",      "nullable": "N", "comment": "Units ordered"},
+        {"name": "order_status",     "type": "VARCHAR2(10)", "nullable": "N", "comment": "Current order status"},
+        {"name": "shipping_address", "type": "VARCHAR2(500)","nullable": "Y", "comment": "Full shipping address"},
+        {"name": "discount_percent", "type": "NUMBER(5,2)",  "nullable": "Y", "comment": "Discount percentage"},
+        {"name": "etl_batch_id",     "type": "INTEGER",      "nullable": "N", "comment": "ETL batch load identifier"},
+        {"name": "load_timestamp",   "type": "TIMESTAMP",    "nullable": "N", "comment": "ETL load timestamp"}
+      ]
+    },
+    "DIM_PRODUCT": {
+      "owner": "DW_OWNER",
+      "row_count_estimate": 0,
+      "columns": [
+        {"name": "product_key",      "type": "INTEGER",       "nullable": "N", "comment": "Surrogate primary key"},
+        {"name": "product_id",       "type": "INTEGER",       "nullable": "N", "comment": "Source system product ID"},
+        {"name": "product_name",     "type": "VARCHAR2(200)", "nullable": "N", "comment": "Full product name"},
+        {"name": "category",         "type": "VARCHAR2(50)",  "nullable": "N", "comment": "Product category"},
+        {"name": "list_price",       "type": "NUMBER(10,2)",  "nullable": "N", "comment": "Standard list price"},
+        {"name": "stock_quantity",   "type": "INTEGER",       "nullable": "N", "comment": "Available stock units"},
+        {"name": "sku_code",         "type": "VARCHAR2(20)",  "nullable": "N", "comment": "SKU identifier"},
+        {"name": "is_active",        "type": "CHAR(1)",       "nullable": "N", "comment": "Active Y/N"},
+        {"name": "created_date",     "type": "DATE",          "nullable": "N", "comment": "Product creation date"},
+        {"name": "etl_batch_id",     "type": "INTEGER",       "nullable": "N", "comment": "ETL batch load identifier"},
+        {"name": "load_timestamp",   "type": "TIMESTAMP",     "nullable": "N", "comment": "ETL load timestamp"}
+      ]
+    }
+  }
+}
