@@ -182,7 +182,7 @@ def _validate(raw, src_columns, tgt_columns, threshold) -> List[MappingCandidate
 # ── Main entry ────────────────────────────────────────────────────────────────
 async def generate_mappings(
     src_table, src_columns, tgt_table, tgt_columns,
-    threshold=0.40, model_name=MODEL_ID,
+    threshold=0.40, ai_model=MODEL_ID,
 ) -> List[MappingCandidate]:
     # Stage 1 — parallel profiling
     logger.info("Profiling %d source columns …", len(src_columns))
@@ -190,11 +190,11 @@ async def generate_mappings(
 
     # Stage 2 — build prompt & call Gemini
     prompt = build_prompt(src_table, src_columns, src_profiles, tgt_table, tgt_columns)
-    logger.info("Calling Gemini (%s) with %d-char prompt …", model_name, len(prompt))
+    logger.info("Calling Gemini (%s) with %d-char prompt …", ai_model, len(prompt))
 
     client   = get_client()
     response = client.models.generate_content(
-        model=model_name,
+        model=ai_model,
         contents=prompt,
         config=types.GenerateContentConfig(
             temperature=0.1,

@@ -148,7 +148,7 @@ class MappingRunCreate(BaseModel):
     source_table:    str
     target_table:    str
     threshold:       float = 0.40
-    model_name:      str   = "gemini-2.0-flash"
+    ai_model:      str   = "gemini-2.0-flash"
     prompt_version:  str   = "v1"
 
 class MappingRunRead(MappingRunCreate):

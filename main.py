@@ -268,6 +268,7 @@ async def generate_mapping_run_sync(project_id: str, body: MappingRunCreate):
             tgt_table   = body.target_table,
             tgt_columns = tgt_schema["columns"],
             threshold   = body.threshold,
+            ai_model    = body.ai_model,
         )
 
         store.set_run_candidates(run_id, [c.model_dump() for c in candidates])
