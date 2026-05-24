@@ -24,17 +24,17 @@ human-review workflow.
 └──────┬──────────────────────────────────────────────────────┘
        │
 ┌──────▼──────────────────┐    ┌──────────────────────────────┐
-│   Mapping Engine        │    │   Gemini Service            │
-│  • Pattern inference    │───▶│  • Prompt builder           │
+│   Mapping Engine        │    │   Gemini Service             │
+│  • Pattern inference    │───▶│  • Prompt builder            │
 │  • Name similarity      │    │  • Gemini 2.0 Flash API call │
 │  • Type compatibility   │    │  • JSON extraction           │
 │  • Parallel profiler    │    │  • Validation                │
 └─────────────────────────┘    └──────────────────────────────┘
        │
-┌──────▼──────────────────┐
-│   In-memory State Store  │
+┌──────▼──────────────────  ┐
+│   In-memory State Store   │
 │  (SQLite / Oracle in prod)│
-└──────────────────────────┘
+└────────────────────────── ┘
 ```
 
 ## Four Mapping Signals
