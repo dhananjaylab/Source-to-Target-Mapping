@@ -1,0 +1,16 @@
+title: Oracle Mapping Copilot
+description: AI-assisted Oracle source-to-target schema mapping with Gemini LLM
+sdk: docker
+sdk_version: latest
+app_file: app.py
+models:
+  - text-generation
+  - text2text-generation
+tags:
+  - oracle
+  - database
+  - mapping
+  - ai
+  - gemini
+  - fastapi
+  - streamlit
