@@ -14,22 +14,22 @@ human-review workflow.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    Streamlit Frontend                        │
+│                    Streamlit Frontend                       │
 │  Setup → Generate → Review → Export                         │
 └───────────────────┬─────────────────────────────────────────┘
                     │  HTTP (REST)
 ┌───────────────────▼─────────────────────────────────────────┐
-│                   FastAPI Backend                            │
+│                   FastAPI Backend                           │
 │  /projects  /schemas  /profiles  /mappings  /exports        │
 └──────┬──────────────────────────────────────────────────────┘
        │
 ┌──────▼──────────────────┐    ┌──────────────────────────────┐
-│   Mapping Engine         │    │   Gemini Service              │
-│  • Pattern inference     │───▶│  • Prompt builder            │
-│  • Name similarity       │    │  • Gemini 2.0 Flash API call │
-│  • Type compatibility    │    │  • JSON extraction           │
-│  • Parallel profiler     │    │  • Validation                │
-└──────────────────────────┘    └──────────────────────────────┘
+│   Mapping Engine        │    │   Gemini Service            │
+│  • Pattern inference    │───▶│  • Prompt builder           │
+│  • Name similarity      │    │  • Gemini 2.0 Flash API call │
+│  • Type compatibility   │    │  • JSON extraction           │
+│  • Parallel profiler    │    │  • Validation                │
+└─────────────────────────┘    └──────────────────────────────┘
        │
 ┌──────▼──────────────────┐
 │   In-memory State Store  │
