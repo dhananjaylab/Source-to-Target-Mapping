@@ -1,0 +1,31 @@
+# Oracle Mapping Copilot — Python Dependencies
+# Install with: pip install -r requirements.txt
+
+# ── Web framework ──────────────────────────
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+
+# ── Streamlit UI ───────────────────────────
+streamlit==1.38.0
+
+# ── Gemini LLM ─────────────────────────────
+google-generativeai==0.8.3
+
+# ── Data & HTTP ────────────────────────────
+pandas==2.2.3
+requests==2.32.3
+httpx==0.27.2
+aiofiles==24.1.0
+openpyxl==3.1.5
+
+# ── Validation & config ────────────────────
+pydantic==2.9.2
+python-dotenv==1.0.1
+
+# ── Oracle DB (optional — enable for live Oracle) ──
+# cx_Oracle==8.3.0
+# oracledb==2.4.1
+
+# ── Observability (optional) ───────────────
+# structlog==24.4.0
+# prometheus-fastapi-instrumentator==7.0.0
