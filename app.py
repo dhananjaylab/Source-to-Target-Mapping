@@ -579,14 +579,21 @@ def render_generate():
     status_ph.info("⏳ Profiling source and target schemas concurrently…")
     log("Starting parallel column profiling (ThreadPoolExecutor)…")
 
-    src_profile = api("POST",
-                      f"/projects/{st.session_state.project_id}/profiles",
-                      params={"table_name": st.session_state.src_table, "side": "source"})
-    log(f"  ✔ Source profiles built: {src_profile.get('column_count',0)} columns")
+    import concurrent.futures
 
-    tgt_profile = api("POST",
-                      f"/projects/{st.session_state.project_id}/profiles",
-                      params={"table_name": st.session_state.tgt_table, "side": "target"})
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        future_src = executor.submit(
+            api, "POST", f"/projects/{st.session_state.project_id}/profiles",
+            params={"table_name": st.session_state.src_table, "side": "source"}
+        )
+        future_tgt = executor.submit(
+            api, "POST", f"/projects/{st.session_state.project_id}/profiles",
+            params={"table_name": st.session_state.tgt_table, "side": "target"}
+        )
+        src_profile = future_src.result()
+        tgt_profile = future_tgt.result()
+
+    log(f"  ✔ Source profiles built: {src_profile.get('column_count',0)} columns")
     log(f"  ✔ Target profiles built: {tgt_profile.get('column_count',0)} columns")
 
     prog_ph.progress(30, text="Stage 1 complete — profiles ready")
@@ -605,7 +612,7 @@ def render_generate():
         "source_table": st.session_state.src_table,
         "target_table": st.session_state.tgt_table,
         "threshold":    st.session_state.threshold,
-        "model_name":   "gemini-2.0-flash",
+        "ai_model":     "gemini-2.0-flash",
         "prompt_version": "v1",
     }
 
