@@ -52,9 +52,12 @@ app = FastAPI(
     redoc_url    = "/redoc",
 )
 
+allowed_origins_env = os.getenv("CORS_ALLOWED_ORIGINS", "")
+allowed_origins = [orig.strip() for orig in allowed_origins_env.split(",") if orig.strip()] or ["http://localhost:8501", "http://localhost:3000", "http://localhost:7860"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins  = ["*"],
+    allow_origins  = allowed_origins,
     allow_methods  = ["*"],
     allow_headers  = ["*"],
 )
@@ -97,11 +100,14 @@ def get_project(project_id: str):
 # Connectors
 # ──────────────────────────────────────────────
 
-@app.get("/projects/{project_id}/connectors", response_model=List[dict], tags=["Connectors"])
+@app.get("/projects/{project_id}/connectors", response_model=List[ConnectorRead], tags=["Connectors"])
 def list_connectors(project_id: str):
+    proj = store.get_project(project_id)
+    if not proj:
+        raise HTTPException(404, "Project not found.")
     return store.list_connectors(project_id)
 
-@app.post("/projects/{project_id}/connectors", response_model=dict, status_code=201, tags=["Connectors"])
+@app.post("/projects/{project_id}/connectors", response_model=ConnectorRead, status_code=201, tags=["Connectors"])
 def save_connector(project_id: str, body: ConnectorCreate):
     proj = store.get_project(project_id)
     if not proj:
@@ -226,6 +232,8 @@ async def generate_mapping_run(
     proj = store.get_project(project_id)
     if not proj:
         raise HTTPException(404, "Project not found.")
+    if body.project_id != project_id:
+        raise HTTPException(400, "Project ID in body does not match path parameter.")
 
     run = store.create_run(body)
     background_tasks.add_task(
@@ -249,6 +257,8 @@ async def generate_mapping_run_sync(project_id: str, body: MappingRunCreate):
     proj = store.get_project(project_id)
     if not proj:
         raise HTTPException(404, "Project not found.")
+    if body.project_id != project_id:
+        raise HTTPException(400, "Project ID in body does not match path parameter.")
 
     run = store.create_run(body)
     run_id = run["id"]
@@ -291,13 +301,19 @@ async def generate_mapping_run_sync(project_id: str, body: MappingRunCreate):
 
 @app.get("/projects/{project_id}/mappings", response_model=List[dict], tags=["Mappings"])
 def list_runs(project_id: str):
+    proj = store.get_project(project_id)
+    if not proj:
+        raise HTTPException(404, "Project not found.")
     return store.list_runs(project_id)
 
-@app.get("/projects/{project_id}/mappings/{run_id}", tags=["Mappings"])
+@app.get("/projects/{project_id}/mappings/{run_id}", tags=["Mappings"], response_model=MappingRunRead)
 def get_run(project_id: str, run_id: str):
+    proj = store.get_project(project_id)
+    if not proj:
+        raise HTTPException(404, "Project not found.")
     run = store.get_run(run_id)
-    if not run:
-        raise HTTPException(404, "Run not found.")
+    if not run or run.get("project_id") != project_id:
+        raise HTTPException(404, "Run not found for this project.")
     return run
 
 
@@ -308,9 +324,12 @@ def get_run(project_id: str, run_id: str):
 @app.post("/projects/{project_id}/mappings/{run_id}/validate", tags=["Mappings"])
 def validate_run(project_id: str, run_id: str):
     """Re-runs validation logic on existing candidates without re-calling LLM."""
+    proj = store.get_project(project_id)
+    if not proj:
+        raise HTTPException(404, "Project not found.")
     run = store.get_run(run_id)
-    if not run:
-        raise HTTPException(404, "Run not found.")
+    if not run or run.get("project_id") != project_id:
+        raise HTTPException(404, "Run not found for this project.")
 
     tgt_schema = store.get_target_schema(run["target_table"])
     if not tgt_schema:
@@ -339,14 +358,25 @@ def validate_run(project_id: str, run_id: str):
 @app.post("/projects/{project_id}/mappings/{run_id}/review",
           response_model=MessageResponse, tags=["Review"])
 def apply_review(project_id: str, run_id: str, body: BulkReviewRequest):
+    proj = store.get_project(project_id)
+    if not proj:
+        raise HTTPException(404, "Project not found.")
+    run = store.get_run(run_id)
+    if not run or run.get("project_id") != project_id:
+        raise HTTPException(404, "Run not found for this project.")
+    if body.run_id != run_id:
+        raise HTTPException(400, "Run ID in body does not match path parameter.")
     changed = store.apply_reviews(run_id, body.actions)
     return MessageResponse(message=f"{changed} mapping(s) updated.", data={"changed": changed})
 
 @app.get("/projects/{project_id}/mappings/{run_id}/review/summary", tags=["Review"])
 def review_summary(project_id: str, run_id: str):
+    proj = store.get_project(project_id)
+    if not proj:
+        raise HTTPException(404, "Project not found.")
     run = store.get_run(run_id)
-    if not run:
-        raise HTTPException(404, "Run not found.")
+    if not run or run.get("project_id") != project_id:
+        raise HTTPException(404, "Run not found for this project.")
     cands    = run["candidates"]
     approved = sum(1 for c in cands if c.get("status") == MappingStatus.APPROVED)
     rejected = sum(1 for c in cands if c.get("status") == MappingStatus.REJECTED)
@@ -363,10 +393,10 @@ def review_summary(project_id: str, run_id: str):
 # Export
 # ──────────────────────────────────────────────
 
-def _get_export_rows(run_id: str, approved_only: bool) -> List[dict]:
+def _get_export_rows(run_id: str, approved_only: bool, project_id: str) -> List[dict]:
     run = store.get_run(run_id)
-    if not run:
-        raise HTTPException(404, "Run not found.")
+    if not run or run.get("project_id") != project_id:
+        raise HTTPException(404, "Run not found for this project.")
     cands = run["candidates"]
     if approved_only:
         cands = [c for c in cands
@@ -376,7 +406,14 @@ def _get_export_rows(run_id: str, approved_only: bool) -> List[dict]:
 
 @app.post("/projects/{project_id}/exports", tags=["Export"])
 def export_mappings(project_id: str, body: ExportRequest):
-    rows = _get_export_rows(body.run_id, body.approved_only)
+    proj = store.get_project(project_id)
+    if not proj:
+        raise HTTPException(404, "Project not found.")
+    if body.run_id:
+        run = store.get_run(body.run_id)
+        if not run or run.get("project_id") != project_id:
+            raise HTTPException(404, "Run not found for this project.")
+    rows = _get_export_rows(body.run_id, body.approved_only, project_id)
 
     if body.format == "json":
         return JSONResponse({"run_id": body.run_id, "count": len(rows), "mappings": rows})

@@ -71,6 +71,9 @@ class ColumnProfile(BaseModel):
     distinct_count:  Optional[int]  = None
 
 
+from pydantic import BaseModel, Field, field_validator
+
+
 # ──────────────────────────────────────────────
 # Connector
 # ──────────────────────────────────────────────
@@ -78,7 +81,7 @@ class ColumnProfile(BaseModel):
 class ConnectorCreate(BaseModel):
     side:         ConnectorSide
     host:         str = "localhost"
-    port:         int = 1521
+    port: int = 1521
     service_name: str = "ORCL"
     username:     str = "system"
     password:     str = ""            # stored encrypted in real builds
@@ -89,6 +92,11 @@ class ConnectorRead(ConnectorCreate):
     project_id: str
     password:   str = "********"      # masked on read
     created_at: datetime
+
+    @field_validator("password")
+    @classmethod
+    def mask_password(cls, v: str) -> str:
+        return "********"
 
     class Config:
         from_attributes = True
