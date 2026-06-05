@@ -399,7 +399,9 @@ def render_setup():
         if src_table_list:
             idx = src_table_list.index(st.session_state.src_table) if st.session_state.src_table in src_table_list else 0
             chosen_src = st.selectbox("Source Table", src_table_list, index=idx, key="src_table_sel")
-            st.session_state.src_table = chosen_src
+            if chosen_src != st.session_state.src_table:
+                st.session_state.src_table = chosen_src
+                st.session_state.src_profiles = {}
         if st.button("🔌 Test Connection", key="test_src"):
             st.success("✅ Connected — 284,500 rows accessible")
         st.markdown('</div>', unsafe_allow_html=True)
@@ -416,7 +418,8 @@ def render_setup():
         if tgt_table_list:
             idx = tgt_table_list.index(st.session_state.tgt_table) if st.session_state.tgt_table in tgt_table_list else 0
             chosen_tgt = st.selectbox("Target Table", tgt_table_list, index=idx, key="tgt_table_sel")
-            st.session_state.tgt_table = chosen_tgt
+            if chosen_tgt != st.session_state.tgt_table:
+                st.session_state.tgt_table = chosen_tgt
         if st.button("🔌 Test Connection", key="test_tgt"):
             st.success("✅ Connected — DW schema accessible")
         st.markdown('</div>', unsafe_allow_html=True)
@@ -924,14 +927,20 @@ def render_review():
                             st.session_state.expanded_row = None
                             st.rerun()
 
-                    # Source sample data
-                    src_schema = api("GET", f"/schemas/source/{st.session_state.src_table}") or {}
-                    src_col_def = next(
-                        (col for col in src_schema.get("columns", []) if col["name"] == src), None
-                    )
-                    if src_col_def and src_col_def.get("samples"):
+                    # Source sample data (masked via Column Profile)
+                    if "src_profiles" not in st.session_state or not st.session_state.src_profiles:
+                        sp = api("POST",
+                                 f"/projects/{st.session_state.project_id}/profiles",
+                                 params={"table_name": st.session_state.src_table, "side": "source"})
+                        if sp:
+                            st.session_state.src_profiles = {p["column_name"]: p for p in sp.get("profiles", [])}
+                        else:
+                            st.session_state.src_profiles = {}
+                    
+                    prof = st.session_state.src_profiles.get(src)
+                    if prof and prof.get("masked_samples"):
                         st.markdown("**Sample Values** (masked if PII)")
-                        st.code(", ".join(str(s) for s in src_col_def["samples"][:5]))
+                        st.code(", ".join(str(s) for s in prof["masked_samples"]))
 
                 st.markdown('</div>', unsafe_allow_html=True)
 
