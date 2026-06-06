@@ -36,7 +36,7 @@ _PATTERNS: List[Tuple[str, re.Pattern]] = [
 _THRESHOLD = 0.70   # ≥70 % of non-null samples must match for label assignment
 
 
-def infer_pattern(samples: List[Any]) -> str:
+def infer_pattern(samples: List[Any], col_name: str = "") -> str:
     """Return the dominant pattern label for a list of sample values."""
     str_samples = [str(s).strip() for s in samples if s is not None and str(s).strip()]
     if not str_samples:
@@ -57,6 +57,25 @@ def infer_pattern(samples: List[Any]) -> str:
 
     if len(numeric) == len(str_samples):
         if all(float(s) == int(float(s)) for s in str_samples):
+            name_lower = col_name.lower()
+            tokens = set(_tokenize(col_name))
+            measure_hints = {"qty", "quantity", "count", "cnt", "amount", "amt", "volume", "vol", "rate", "num", "number", "score", "days", "years", "months"}
+            is_measure = (
+                bool(tokens & measure_hints) or
+                any(name_lower.endswith(sfx) for sfx in ["_qty", "_cnt", "_amt", "_vol", "_count", "_quantity", "_amount", "_rate", "_days", "_years", "_months"])
+            )
+            if is_measure:
+                return "integer"
+            
+            id_hints = {"id", "key", "code", "no", "num", "idx", "index"}
+            is_id = (
+                bool(tokens & id_hints) or
+                any(name_lower.endswith(sfx) for sfx in ["_id", "_key", "_cd", "_code", "_no", "_num", "_pk", "_fk"]) or
+                name_lower == "id" or name_lower == "key"
+            )
+            if is_id:
+                return "integer_id"
+            
             return "integer_id" if all(float(s) > 0 for s in str_samples) else "integer"
         return "decimal"
 
@@ -128,9 +147,6 @@ def name_similarity(src: str, tgt: str) -> float:
 
 
 # ──────────────────────────────────────────────
-# Type compatibility
-# ──────────────────────────────────────────────
-
 _TYPE_FAMILY: Dict[str, str] = {}
 
 def _fam(types: List[str], family: str):
@@ -146,29 +162,77 @@ _fam(["boolean","bool"], "boolean")
 _fam(["blob","raw","long raw","binary"], "binary")
 
 
-def _get_family(type_str: str) -> str:
-    key = re.split(r"[(\s]", type_str.lower())[0]
-    return _TYPE_FAMILY.get(key, "unknown")
+def parse_type_meta(type_str: str) -> Tuple[str, Optional[int], Optional[int]]:
+    """
+    Parses a type string (e.g. 'VARCHAR2(100)', 'NUMBER(10, 2)', 'NUMBER(5)')
+    and returns (base_type_name, precision_or_length, scale).
+    """
+    s = type_str.strip().lower()
+    match = re.match(r"^([a-z0-9\s]+)(?:\((\d+)(?:\s*,\s*(\d+))?\))?", s)
+    if not match:
+        return s, None, None
+    base_type = match.group(1).strip()
+    p_or_l = int(match.group(2)) if match.group(2) else None
+    s_val = int(match.group(3)) if match.group(3) else None
+    return base_type, p_or_l, s_val
+
+
+def _get_family_refined(base_type: str, precision: Optional[int], scale: Optional[int]) -> str:
+    if base_type in ("number", "numeric", "decimal"):
+        if scale == 0:
+            return "numeric_int"
+        return "numeric_dec"
+    return _TYPE_FAMILY.get(base_type, "unknown")
 
 
 def type_compatible(src_type: str, tgt_type: str) -> float:
-    """Return 0.0, 0.5, or 1.0 based on type compatibility."""
-    sf = _get_family(src_type)
-    tf = _get_family(tgt_type)
-    if sf == tf:
-        return 1.0
-    # numeric int ↔ numeric dec are close
-    if {sf, tf} == {"numeric_int", "numeric_dec"}:
-        return 0.75
-    # date ↔ timestamp are reasonable
-    if {sf, tf} == {"date", "timestamp"}:
-        return 0.60
-    # text ↔ char family
-    if sf in ("text",) and tf in ("text",):
-        return 1.0
+    """Return 0.0-1.0 based on Oracle-aware type compatibility."""
+    sb, sp, ss = parse_type_meta(src_type)
+    tb, tp, ts = parse_type_meta(tgt_type)
+
+    sf = _get_family_refined(sb, sp, ss)
+    tf = _get_family_refined(tb, tp, ts)
+
     if sf == "unknown" or tf == "unknown":
         return 0.50
-    return 0.0
+
+    if sf != tf:
+        # numeric int ↔ numeric dec are close
+        if {sf, tf} == {"numeric_int", "numeric_dec"}:
+            return 0.75
+        # date ↔ timestamp are reasonable
+        if {sf, tf} == {"date", "timestamp"}:
+            return 0.60
+        return 0.0
+
+    # If they are both in the text family, check CLOB vs VARCHAR
+    if sf == "text":
+        if sb == "clob" and tb != "clob":
+            return 0.70  # CLOB to VARCHAR mapping risk
+        if tb == "clob" and sb != "clob":
+            return 1.0   # VARCHAR to CLOB is safe
+        
+        # VARCHAR length check
+        if sp and tp:
+            if sp > tp:
+                return 0.85  # potential truncation
+            return 1.0
+
+    # If they are both numeric, check precision/scale compatibility
+    if sf == "numeric_int":
+        if sp and tp and sp > tp:
+            return 0.85  # potential overflow
+        return 1.0
+
+    if sf == "numeric_dec":
+        if ss is not None and ts is not None:
+            if ss > ts:
+                return 0.80  # precision loss on scale
+        if sp and tp and sp > tp:
+            return 0.85  # potential overflow
+        return 1.0
+
+    return 1.0
 
 
 # ──────────────────────────────────────────────
@@ -176,14 +240,42 @@ def type_compatible(src_type: str, tgt_type: str) -> float:
 # ──────────────────────────────────────────────
 
 _PII_PATTERN_LABELS = {"email", "phone", "uuid"}
-_PII_NAME_HINTS     = {"ssn", "social", "passport", "national_id", "credit",
-                        "card", "cvv", "pin", "password", "secret", "dob", "birth"}
+_PII_NAME_HINTS     = {
+    "ssn", "social", "passport", "national_id", "credit", "card", "cvv", "pin",
+    "password", "secret", "dob", "birth", "email", "phone", "tel", "mobile",
+    "address", "addr", "street", "fname", "lname", "first_name", "last_name",
+    "account", "acct", "balance", "bal", "zip", "postal", "city", "state", "country"
+}
 
 
 def should_mask(col_name: str, pattern_label: str) -> bool:
+    name_lower = col_name.lower()
     tokens = set(_tokenize(col_name))
-    return (pattern_label in _PII_PATTERN_LABELS or
-            bool(tokens & _PII_NAME_HINTS))
+    
+    # 1. Direct pattern label match
+    if pattern_label in _PII_PATTERN_LABELS:
+        return True
+        
+    # 2. Token overlap check
+    if bool(tokens & _PII_NAME_HINTS):
+        return True
+
+    # 3. Compound string/substring matching
+    compound_hints = {
+        "first", "last", "name", "email", "phone", "tel", "mobile", "address", 
+        "street", "account", "acct", "balance", "ssn", "social", "dob", "birth"
+    }
+    # Skip matching generic 'name' if it's not a person's name (e.g. product_name)
+    for hint in compound_hints:
+        if hint in name_lower:
+            if hint == "name":
+                # Only mask if it looks like person/user/customer/vendor/contact name
+                if any(x in name_lower for x in ["cust", "user", "client", "member", "person", "first", "last", "fname", "lname", "emp", "vendor", "contact", "owner"]):
+                    return True
+            else:
+                return True
+            
+    return False
 
 
 def mask_samples(samples: List[Any], col_name: str, pattern_label: str) -> List[str]:
@@ -199,7 +291,7 @@ def mask_samples(samples: List[Any], col_name: str, pattern_label: str) -> List[
 def build_profile(col: dict) -> ColumnProfile:
     """Build an enriched profile for one column dict."""
     samples  = col.get("samples") or []
-    pattern  = infer_pattern(samples)
+    pattern  = infer_pattern(samples, col["name"])
     masked   = mask_samples(samples, col["name"], pattern)
     # semantic tags
     tags = []

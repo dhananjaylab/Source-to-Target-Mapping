@@ -181,14 +181,28 @@ class Store:
     def list_target_tables(self) -> List[str]:
         return list(DEMO_TARGET_SCHEMAS.keys())
 
-    # ── Audit ─────────────────────────────────
+    def _scrub_dict(self, d: dict) -> dict:
+        if not isinstance(d, dict):
+            return d
+        scrubbed = {}
+        for k, v in d.items():
+            if k == "password":
+                scrubbed[k] = "********"
+            elif isinstance(v, dict):
+                scrubbed[k] = self._scrub_dict(v)
+            elif isinstance(v, list):
+                scrubbed[k] = [self._scrub_dict(item) if isinstance(item, dict) else item for item in v]
+            else:
+                scrubbed[k] = v
+        return scrubbed
 
     def _log(self, entity_type: str, entity_id: str,
              action: str, actor: str, payload: dict):
+        scrubbed_payload = self._scrub_dict(payload) if isinstance(payload, dict) else payload
         self._audit.append({
             "id": str(uuid.uuid4()), "entity_type": entity_type,
             "entity_id": entity_id, "action": action,
-            "actor": actor, "payload": payload,
+            "actor": actor, "payload": scrubbed_payload,
             "created_at": datetime.utcnow(),
         })
 

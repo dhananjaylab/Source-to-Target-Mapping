@@ -14,7 +14,26 @@ from models import MappingCandidate, SignalBreakdown, MappingStatus, ConfidenceT
 from mapping_engine import (
     build_profiles_parallel, classify_tier,
     name_similarity, pre_signal_summary,
+    type_compatible,
 )
+from pydantic import BaseModel
+
+# Structured output Pydantic schemas for Gemini
+class GeminiSignalBreakdown(BaseModel):
+    name_similarity:    str
+    type_compatibility: str
+    pattern_match:      str
+    semantic:           str
+
+class GeminiMappingCandidate(BaseModel):
+    source_column:      str
+    target_column:      Optional[str]
+    confidence:         float
+    rationale:          str
+    signals:            GeminiSignalBreakdown
+
+class GeminiMappingResponse(BaseModel):
+    candidates:         List[GeminiMappingCandidate]
 
 logger = logging.getLogger(__name__)
 
@@ -76,18 +95,24 @@ def build_prompt(src_table, src_columns, src_profiles, tgt_table, tgt_columns) -
     src_lines = []
     for col, prof in zip(src_columns, src_profiles):
         hint = pre_signal_summary(col, tgt_columns)
+        comment = col.get("comment", "")
+        wrapped_comment = f"<comment>{comment}</comment>" if comment else '""'
+        wrapped_samples = f"<samples>{prof.masked_samples}</samples>"
         src_lines.append(
             f"  • {col['name']}"
             f" | type: {col.get('type','?')}"
-            f" | comment: \"{col.get('comment','')}\""
+            f" | comment: {wrapped_comment}"
             f" | pattern: {prof.inferred_pattern}"
-            f" | samples: {prof.masked_samples}"
+            f" | samples: {wrapped_samples}"
             f" | pre-signal: {hint}"
         )
-    tgt_lines = [
-        f"  • {c['name']} | type: {c.get('type','?')} | comment: \"{c.get('comment','')}\""
-        for c in tgt_columns
-    ]
+    tgt_lines = []
+    for c in tgt_columns:
+        c_comment = c.get("comment", "")
+        wrapped_c_comment = f"<comment>{c_comment}</comment>" if c_comment else '""'
+        tgt_lines.append(
+            f"  • {c['name']} | type: {c.get('type','?')} | comment: {wrapped_c_comment}"
+        )
     return f"""You are a senior Oracle data-warehouse engineer performing source-to-target schema mapping.
 Map each SOURCE column to the best matching TARGET column using four signals.
 
@@ -188,28 +213,113 @@ async def generate_mappings(
     logger.info("Profiling %d source columns …", len(src_columns))
     src_profiles = build_profiles_parallel(src_columns)
 
-    # Stage 2 — build prompt & call Gemini
-    prompt = build_prompt(src_table, src_columns, src_profiles, tgt_table, tgt_columns)
-    logger.info("Calling Gemini (%s) with %d-char prompt …", ai_model, len(prompt))
+    resolved_candidates: List[MappingCandidate] = []
+    unresolved_src_cols = []
+    unresolved_src_profiles = []
 
-    client   = get_client()
-    response = client.models.generate_content(
-        model=ai_model,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            temperature=0.1,
-            top_p=0.95,
-            max_output_tokens=8192,
-        ),
-    )
-    raw_text = response.text
-    logger.info("Gemini response: %d chars", len(raw_text))
+    tgt_meta = {c["name"]: c for c in tgt_columns}
+
+    # Deterministic bypass for exact matches
+    for col, prof in zip(src_columns, src_profiles):
+        src_name = col["name"]
+        src_type = col.get("type", "")
+        
+        exact_match_tgt = None
+        for tc in tgt_columns:
+            if name_similarity(src_name, tc["name"]) == 1.0 and type_compatible(src_type, tc.get("type", "")) == 1.0:
+                exact_match_tgt = tc["name"]
+                break
+                
+        if exact_match_tgt:
+            logger.info("Deterministic bypass: exact match found for '%s' -> '%s'", src_name, exact_match_tgt)
+            resolved_candidates.append(MappingCandidate(
+                source_column      = src_name,
+                source_type        = src_type,
+                source_comment     = col.get("comment", ""),
+                target_column      = exact_match_tgt,
+                target_type        = tgt_meta[exact_match_tgt]["type"],
+                target_comment     = tgt_meta[exact_match_tgt].get("comment", ""),
+                confidence         = 1.0,
+                confidence_tier    = ConfidenceTier.EXACT,
+                rationale          = "Deterministic bypass: exact match on name and type family.",
+                signals            = SignalBreakdown(
+                    name_similarity    = "Exact name match (1.00)",
+                    type_compatibility = "Compatible type (1.00)",
+                    pattern_match      = "Matches",
+                    semantic           = "Identical concept",
+                ),
+                status = MappingStatus.PENDING,
+            ))
+        else:
+            unresolved_src_cols.append(col)
+            unresolved_src_profiles.append(prof)
+
+    if not unresolved_src_cols:
+        logger.info("All columns resolved deterministically. Bypassing LLM.")
+        resolved_candidates.sort(key=lambda c: (c.target_column is None, -c.confidence))
+        return resolved_candidates
+
+    # Stage 2 — build prompt & call Gemini
+    prompt = build_prompt(src_table, unresolved_src_cols, unresolved_src_profiles, tgt_table, tgt_columns)
+    logger.info("Calling Gemini (%s) with %d-char prompt for %d unresolved columns …", ai_model, len(prompt), len(unresolved_src_cols))
+
+    client = get_client()
+    raw_list = []
+    
+    try:
+        response = client.models.generate_content(
+            model=ai_model,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                temperature=0.1,
+                top_p=0.95,
+                max_output_tokens=8192,
+                response_mime_type="application/json",
+                response_schema=GeminiMappingResponse,
+            ),
+        )
+        raw_text = response.text
+        logger.info("Gemini response: %d chars", len(raw_text))
+        data = json.loads(raw_text)
+        raw_list = data.get("candidates", [])
+    except Exception as exc:
+        logger.warning("Failed structured Gemini call: %s. Retrying...", exc)
+        try:
+            response = client.models.generate_content(
+                model=ai_model,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.0,
+                    max_output_tokens=8192,
+                    response_mime_type="application/json",
+                    response_schema=GeminiMappingResponse,
+                ),
+            )
+            raw_text = response.text
+            data = json.loads(raw_text)
+            raw_list = data.get("candidates", [])
+        except Exception as retry_exc:
+            logger.error("Structured output retry failed: %s. Falling back to parsing regex.", retry_exc)
+            try:
+                response = client.models.generate_content(
+                    model=ai_model,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        temperature=0.1,
+                        max_output_tokens=8192,
+                    ),
+                )
+                raw_list = _extract_json(response.text)
+            except Exception as final_exc:
+                logger.exception("All attempts to parse mapping output failed: %s", final_exc)
+                raise RuntimeError(f"All LLM mapping attempts failed: {final_exc}")
 
     # Stage 3 — extract + validate
-    raw_list   = _extract_json(raw_text)
-    candidates = _validate(raw_list, src_columns, tgt_columns, threshold)
+    llm_candidates = _validate(raw_list, unresolved_src_cols, tgt_columns, threshold)
+    all_candidates = resolved_candidates + llm_candidates
+    all_candidates.sort(key=lambda c: (c.target_column is None, -c.confidence))
 
-    mapped = sum(1 for c in candidates if c.target_column)
-    avg_c  = sum(c.confidence for c in candidates) / len(candidates) if candidates else 0
-    logger.info("Done: %d/%d mapped, avg_conf=%.3f", mapped, len(candidates), avg_c)
-    return candidates
+    mapped = sum(1 for c in all_candidates if c.target_column)
+    avg_c  = sum(c.confidence for c in all_candidates) / len(all_candidates) if all_candidates else 0
+    logger.info("Done: %d/%d mapped, avg_conf=%.3f", mapped, len(all_candidates), avg_c)
+    return all_candidates

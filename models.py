@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import Optional, List, Dict, Any
 from enum import Enum
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 
 # ──────────────────────────────────────────────
@@ -76,6 +76,8 @@ class ColumnProfile(BaseModel):
 # ──────────────────────────────────────────────
 
 class ConnectorCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     side:         ConnectorSide
     host:         str = "localhost"
     port:         int = 1521
@@ -85,13 +87,17 @@ class ConnectorCreate(BaseModel):
     schema_name:  str = ""
 
 class ConnectorRead(ConnectorCreate):
+    model_config = ConfigDict(from_attributes=True)
+
     id:         str
     project_id: str
     password:   str = "********"      # masked on read
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    @field_validator("password")
+    @classmethod
+    def mask_password(cls, v: str) -> str:
+        return "********"
 
 
 # ──────────────────────────────────────────────
@@ -99,18 +105,19 @@ class ConnectorRead(ConnectorCreate):
 # ──────────────────────────────────────────────
 
 class ProjectCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name:        str = Field(..., min_length=3, max_length=120)
     description: Optional[str] = ""
     owner:       Optional[str] = "engineer@company.com"
 
 class ProjectRead(ProjectCreate):
+    model_config = ConfigDict(from_attributes=True)
+
     id:         str
     status:     ProjectStatus = ProjectStatus.DRAFT
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 # ──────────────────────────────────────────────
@@ -144,14 +151,18 @@ class MappingCandidate(BaseModel):
 # ──────────────────────────────────────────────
 
 class MappingRunCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     project_id:      str
     source_table:    str
     target_table:    str
-    threshold:       float = 0.40
-    ai_model:      str   = "gemini-2.0-flash"
+    threshold:       float = Field(0.40, ge=0.0, le=1.0)
+    ai_model:        str   = "gemini-2.0-flash"
     prompt_version:  str   = "v1"
 
 class MappingRunRead(MappingRunCreate):
+    model_config = ConfigDict(from_attributes=True)
+
     id:             str
     status:         RunStatus = RunStatus.QUEUED
     candidates:     List[MappingCandidate] = Field(default_factory=list)
@@ -160,22 +171,30 @@ class MappingRunRead(MappingRunCreate):
     error_message:  Optional[str]      = None
     stats:          Dict[str, Any]     = Field(default_factory=dict)
 
-    class Config:
-        from_attributes = True
-
 
 # ──────────────────────────────────────────────
 # Review actions
 # ──────────────────────────────────────────────
 
 class ReviewAction(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     source_column:     str
     action:            MappingStatus   # approved | rejected | overridden
     overridden_target: Optional[str]  = None
     reviewer_note:     Optional[str]  = ""
     reviewer:          str             = "reviewer@company.com"
 
+    @field_validator("action")
+    @classmethod
+    def forbid_pending(cls, v: MappingStatus) -> MappingStatus:
+        if v == MappingStatus.PENDING:
+            raise ValueError("Review actions must not be PENDING.")
+        return v
+
 class BulkReviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     run_id:  str
     actions: List[ReviewAction]
 
@@ -184,14 +203,21 @@ class BulkReviewRequest(BaseModel):
 # Export
 # ──────────────────────────────────────────────
 
+class ExportFormat(str, Enum):
+    JSON = "json"
+    CSV  = "csv"
+    XLSX = "xlsx"
+
 class ExportRequest(BaseModel):
-    run_id:       str
-    format:       str = "json"   # json | csv | xlsx
+    model_config = ConfigDict(extra="forbid")
+
+    run_id:        str
+    format:        ExportFormat = ExportFormat.JSON
     approved_only: bool = True
 
 class ExportResult(BaseModel):
     run_id:       str
-    format:       str
+    format:       ExportFormat
     row_count:    int
     file_path:    Optional[str] = None
     payload:      Optional[Any] = None   # inline JSON payload
